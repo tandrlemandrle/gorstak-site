@@ -26,7 +26,7 @@ async function main() {
     process.exit(1);
   }
 
-  let config = { users: ['Gorstak-Zadar'], onlyRepos: null, excludeRepos: null };
+  let config = { users: ['srackalica'], onlyRepos: null, excludeRepos: null };
   try {
     const raw = fs.readFileSync(CONFIG_PATH, 'utf8');
     const data = JSON.parse(raw);
