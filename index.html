@@ -757,6 +757,15 @@
     }
 
     document.getElementById('search').addEventListener('input', render);
+    document.getElementById('search').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const query = document.getElementById('search').value.trim();
+        if (query) {
+          performWebSearch(query);
+        }
+      }
+    });
     fetchRepos();
 
     // ===== WEB SEARCH INTEGRATION =====
