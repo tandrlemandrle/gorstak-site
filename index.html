@@ -797,54 +797,25 @@
       const cached = getWebCache(cacheKey);
       if (cached) return cached;
 
+      const results = [];
+
+      // Try multiple approaches
       try {
-        const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_redirect=1&d=1`;
-        const res = await fetch(url, { mode: 'cors' });
-        if (!res.ok) throw new Error('DuckDuckGo request failed');
-        const data = await res.json();
-        const results = [];
-
-        if (data.AbstractText && data.AbstractURL) {
-          results.push({
-            title: data.Heading || query,
-            url: data.AbstractURL,
-            snippet: data.AbstractText,
-            source: 'DuckDuckGo'
-          });
-        }
-
-        (data.RelatedTopics || []).slice(0, 8).forEach(item => {
-          if (item.FirstURL && item.Text) {
+        // Approach 1: Direct API with no-CORS fallback
+        try {
+          const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_redirect=1&d=1`;
+          const res = await fetch(url, { mode: 'no-cors' }).then(r => r.json ? r.json() : null);
+          if (res?.AbstractText && res?.AbstractURL) {
             results.push({
-              title: item.Text.split('-')[0].trim(),
-              url: item.FirstURL,
-              snippet: item.Text,
+              title: res.Heading || query,
+              url: res.AbstractURL,
+              snippet: res.AbstractText,
               source: 'DuckDuckGo'
             });
           }
-        });
-
-        if (results.length > 0) setWebCache(cacheKey, results);
-        return results;
-      } catch (e) {
-        console.warn('DuckDuckGo error (trying fallback):', e);
-        // Fallback: try using a CORS proxy
-        try {
-          const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json`)}`;
-          const res = await fetch(proxyUrl);
-          if (res.ok) {
-            const data = await res.json();
-            const results = [];
-            if (data.AbstractText && data.AbstractURL) {
-              results.push({
-                title: data.Heading || query,
-                url: data.AbstractURL,
-                snippet: data.AbstractText,
-                source: 'DuckDuckGo'
-              });
-            }
-            (data.RelatedTopics || []).slice(0, 5).forEach(item => {
-              if (item.FirstURL && item.Text) {
+          if (res?.RelatedTopics?.length > 0) {
+            res.RelatedTopics.slice(0, 5).forEach(item => {
+              if (item.FirstURL && item.Text && results.length < 8) {
                 results.push({
                   title: item.Text.split('-')[0].trim(),
                   url: item.FirstURL,
@@ -853,12 +824,40 @@
                 });
               }
             });
-            if (results.length > 0) setWebCache(cacheKey, results);
-            return results;
           }
-        } catch (fallbackErr) {
-          console.warn('CORS proxy fallback also failed:', fallbackErr);
+        } catch (e) {
+          console.warn('Direct DuckDuckGo API failed:', e);
         }
+
+        // Approach 2: Searx instance (better CORS support)
+        if (results.length === 0) {
+          try {
+            const searxUrl = `https://searx.info/search?q=${encodeURIComponent(query)}&format=json`;
+            const res = await fetch(searxUrl);
+            if (res.ok) {
+              const data = await res.json();
+              if (data.results?.length > 0) {
+                data.results.slice(0, 8).forEach(item => {
+                  if (results.length < 8) {
+                    results.push({
+                      title: item.title || '',
+                      url: item.url || '',
+                      snippet: item.content || item.description || '',
+                      source: 'Web'
+                    });
+                  }
+                });
+              }
+            }
+          } catch (e) {
+            console.warn('Searx API failed:', e);
+          }
+        }
+
+        if (results.length > 0) setWebCache(cacheKey, results);
+        return results;
+      } catch (e) {
+        console.warn('All DuckDuckGo fallbacks failed:', e);
         return [];
       }
     }
@@ -869,22 +868,24 @@
       if (cached) return cached;
 
       try {
-        const url = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srwhat=text&srprop=snippet&srlimit=4&format=json`;
+        const url = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srwhat=text&srprop=snippet&srlimit=6&format=json&origin=*`;
         const res = await fetch(url);
         if (!res.ok) throw new Error('Wikipedia request failed');
         const data = await res.json();
         const results = [];
 
         (data.query?.search || []).forEach(item => {
-          results.push({
-            title: item.title,
-            url: `https://en.wikipedia.org/wiki/${encodeURIComponent(item.title)}`,
-            snippet: item.snippet.replace(/<[^>]*>/g, ''),
-            source: 'Wikipedia'
-          });
+          if (results.length < 6) {
+            results.push({
+              title: item.title,
+              url: `https://en.wikipedia.org/wiki/${encodeURIComponent(item.title)}`,
+              snippet: item.snippet.replace(/<[^>]*>/g, '').substring(0, 150),
+              source: 'Wikipedia'
+            });
+          }
         });
 
-        setWebCache(cacheKey, results);
+        if (results.length > 0) setWebCache(cacheKey, results);
         return results;
       } catch (e) {
         console.warn('Wikipedia error:', e);
@@ -894,7 +895,7 @@
 
     function renderWebSearchResults(results, query) {
       if (results.length === 0) {
-        webSearchResultsContainer.innerHTML = `<div class="web-search-empty"><p>No results found for "${escapeHtml(query)}"</p><p style="font-size: 0.8rem; color: var(--text-dim); margin-top: 0.5rem;">Try a different query or visit <a href="https://www.duckduckgo.com/?q=${encodeURIComponent(query)}" target="_blank" style="color: var(--accent);">DuckDuckGo directly</a>.</p></div>`;
+        webSearchResultsContainer.innerHTML = `<div class="web-search-empty"><p>No results found for "${escapeHtml(query)}"</p><p style="font-size: 0.8rem; color: var(--text-dim); margin-top: 1rem;">Try searching on:<br><a href="https://www.google.com/search?q=${encodeURIComponent(query)}" target="_blank" style="color: var(--accent); text-decoration: none;">• Google</a> | <a href="https://www.duckduckgo.com/?q=${encodeURIComponent(query)}" target="_blank" style="color: var(--accent); text-decoration: none;">• DuckDuckGo</a> | <a href="https://en.wikipedia.org/wiki/Special:Search?search=${encodeURIComponent(query)}" target="_blank" style="color: var(--accent); text-decoration: none;">• Wikipedia</a></p></div>`;
         return;
       }
 
