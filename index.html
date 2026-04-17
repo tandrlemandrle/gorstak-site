@@ -799,7 +799,7 @@
 
       try {
         const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_redirect=1&d=1`;
-        const res = await fetch(url);
+        const res = await fetch(url, { mode: 'cors' });
         if (!res.ok) throw new Error('DuckDuckGo request failed');
         const data = await res.json();
         const results = [];
@@ -824,10 +824,41 @@
           }
         });
 
-        setWebCache(cacheKey, results);
+        if (results.length > 0) setWebCache(cacheKey, results);
         return results;
       } catch (e) {
-        console.warn('DuckDuckGo error:', e);
+        console.warn('DuckDuckGo error (trying fallback):', e);
+        // Fallback: try using a CORS proxy
+        try {
+          const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json`)}`;
+          const res = await fetch(proxyUrl);
+          if (res.ok) {
+            const data = await res.json();
+            const results = [];
+            if (data.AbstractText && data.AbstractURL) {
+              results.push({
+                title: data.Heading || query,
+                url: data.AbstractURL,
+                snippet: data.AbstractText,
+                source: 'DuckDuckGo'
+              });
+            }
+            (data.RelatedTopics || []).slice(0, 5).forEach(item => {
+              if (item.FirstURL && item.Text) {
+                results.push({
+                  title: item.Text.split('-')[0].trim(),
+                  url: item.FirstURL,
+                  snippet: item.Text,
+                  source: 'DuckDuckGo'
+                });
+              }
+            });
+            if (results.length > 0) setWebCache(cacheKey, results);
+            return results;
+          }
+        } catch (fallbackErr) {
+          console.warn('CORS proxy fallback also failed:', fallbackErr);
+        }
         return [];
       }
     }
@@ -863,7 +894,7 @@
 
     function renderWebSearchResults(results, query) {
       if (results.length === 0) {
-        webSearchResultsContainer.innerHTML = `<div class="web-search-empty"><p>No results found for "${query}"</p></div>`;
+        webSearchResultsContainer.innerHTML = `<div class="web-search-empty"><p>No results found for "${escapeHtml(query)}"</p><p style="font-size: 0.8rem; color: var(--text-dim); margin-top: 0.5rem;">Try a different query or visit <a href="https://www.duckduckgo.com/?q=${encodeURIComponent(query)}" target="_blank" style="color: var(--accent);">DuckDuckGo directly</a>.</p></div>`;
         return;
       }
 
@@ -917,7 +948,7 @@
         renderWebSearchResults(allResults, q);
       } catch (err) {
         console.error('Web search error:', err);
-        webSearchResultsContainer.innerHTML = `<div class="web-search-error">Search failed. Please try again.</div>`;
+        webSearchResultsContainer.innerHTML = `<div class="web-search-error"><p>Search encountered an issue. Please try again or visit <a href="https://www.wikipedia.org/search/?search=${encodeURIComponent(q)}" target="_blank" style="color: var(--accent);">Wikipedia</a> directly.</p></div>`;
       }
     }
 
