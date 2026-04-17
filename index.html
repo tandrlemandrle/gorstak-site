@@ -718,7 +718,7 @@
       document.getElementById('stats').innerHTML = `Showing <strong>${filtered.length}</strong> of ${allRepos.length} projects`;
 
       if (filtered.length === 0) {
-        document.getElementById('content').innerHTML = `<div class="empty">No projects match your search.</div>`;
+        document.getElementById('content').innerHTML = `<div class="empty"><p>No projects match your search.</p><p style="font-size: 0.85rem; margin-top: 0.5rem;">Click the <strong>Web</strong> button to search the internet.</p></div>`;
         return;
       }
 
