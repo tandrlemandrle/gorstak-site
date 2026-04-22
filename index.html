@@ -808,41 +808,46 @@
 
       const results = [];
 
-      // Try multiple approaches
       try {
-        // Approach 1: Direct API with no-CORS fallback
+        // DuckDuckGo Instant Answer API (supports CORS via origin=*)
         try {
-          const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_redirect=1&d=1`;
-          const res = await fetch(url, { mode: 'no-cors' }).then(r => r.json ? r.json() : null);
-          if (res?.AbstractText && res?.AbstractURL) {
-            results.push({
-              title: res.Heading || query,
-              url: res.AbstractURL,
-              snippet: res.AbstractText,
-              source: 'DuckDuckGo'
-            });
-          }
-          if (res?.RelatedTopics?.length > 0) {
-            res.RelatedTopics.slice(0, 5).forEach(item => {
-              if (item.FirstURL && item.Text && results.length < 8) {
-                results.push({
-                  title: item.Text.split('-')[0].trim(),
-                  url: item.FirstURL,
-                  snippet: item.Text,
-                  source: 'DuckDuckGo'
-                });
-              }
-            });
+          const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_redirect=1&d=1&no_html=1`;
+          const res = await fetch(url);
+          if (res.ok) {
+            const data = await res.json();
+            if (data?.AbstractText && data?.AbstractURL) {
+              results.push({
+                title: data.Heading || query,
+                url: data.AbstractURL,
+                snippet: data.AbstractText,
+                source: 'DuckDuckGo'
+              });
+            }
+            if (data?.RelatedTopics?.length > 0) {
+              data.RelatedTopics.slice(0, 5).forEach(item => {
+                if (item.FirstURL && item.Text && results.length < 8) {
+                  results.push({
+                    title: item.Text.split('-')[0].trim(),
+                    url: item.FirstURL,
+                    snippet: item.Text,
+                    source: 'DuckDuckGo'
+                  });
+                }
+              });
+            }
           }
         } catch (e) {
-          console.warn('Direct DuckDuckGo API failed:', e);
+          console.warn('DuckDuckGo Instant Answer API failed:', e);
         }
 
-        // Approach 2: Searx instance (better CORS support)
+        // Fallback: Searx public instance (may be unavailable)
         if (results.length === 0) {
           try {
-            const searxUrl = `https://searx.info/search?q=${encodeURIComponent(query)}&format=json`;
-            const res = await fetch(searxUrl);
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 4000);
+            const searxUrl = `https://search.sapti.me/search?q=${encodeURIComponent(query)}&format=json&categories=general`;
+            const res = await fetch(searxUrl, { signal: controller.signal });
+            clearTimeout(timeout);
             if (res.ok) {
               const data = await res.json();
               if (data.results?.length > 0) {
